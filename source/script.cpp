@@ -268,7 +268,7 @@ Script::Script()
 	if (   !(mTrayMenu = AddMenu(_T("Tray")))   ) // realistically never happens
 	{
 		ScriptError(_T("No tray mem"));
-		ExitApp(EXIT_DESTROY);
+		ExitApp(EXIT_CRITICAL);
 	}
 	else
 		mTrayMenu->mIncludeStandardItems = true;
@@ -1114,7 +1114,7 @@ ResultType Script::ExitApp(ExitReasons aExitReason, int aExitCode)
 	DEBUGGER_STACK_POP()
 	sOnExitIsRunning = false;  // In case the user wanted the thread to end normally (see above).
 
-	if (terminate_afterward || aExitReason == EXIT_DESTROY)
+	if (terminate_afterward || EXITREASON_MUST_EXIT(aExitReason))
 		TerminateApp(aExitReason, aExitCode);
 
 	// Otherwise:
@@ -1131,7 +1131,7 @@ void Script::TerminateApp(ExitReasons aExitReason, int aExitCode)
 // tray icons, menus, and unowned windows such as ToolTip.
 {
 	// L31: Release objects stored in variables, where possible.
-	if (aExitReason != CRITICAL_ERROR) // i.e. Avoid making matters worse if CRITICAL_ERROR.
+	if (aExitReason != EXIT_CRITICAL) // i.e. Avoid making matters worse if EXIT_CRITICAL.
 	{
 		// Ensure the current thread is not paused and can't be interrupted
 		// in case one or more objects need to call a __delete meta-function.
@@ -15278,12 +15278,16 @@ __forceinline ResultType Line::Perform() // As of 2/9/2009, __forceinline() redu
 			: SoundSetWaveVolume(ARG1, (HWAVEOUT)device_id);
 
 	case ACT_SOUNDBEEP:
-		// For simplicity and support for future/greater capabilities, no range checking is done.
-		// It simply calls the function with the two DWORD values provided. It avoids setting
-		// ErrorLevel because failure is rare and also because a script might want play a beep
-		// right before displaying an error dialog that uses the previous value of ErrorLevel.
-		Beep(*ARG1 ? ArgToUInt(1) : 523, *ARG2 ? ArgToUInt(2) : 150);
+	{
+		// Negative values are checked to avoid interpreting them as a very long duration.
+		// It avoids setting ErrorLevel because failure is rare and also because a script might want
+		// beep right before displaying an error dialog that uses the previous value of ErrorLevel.
+		DWORD duration = *ARG2 ? ArgToUInt(2) : 150;
+		if ((int)duration < 0)
+			duration = 150;
+		Beep(*ARG1 ? ArgToUInt(1) : 523, duration);
 		return OK;
+	}
 
 	case ACT_SOUNDPLAY:
 		return SoundPlay(ARG1, *ARG2 && !_tcsicmp(ARG2, _T("wait")) || !_tcsicmp(ARG2, _T("1")));
@@ -16615,7 +16619,7 @@ ResultType Line::LineError(LPCTSTR aErrorText, ResultType aErrorType, LPCTSTR aE
 
 	if (aErrorType == CRITICAL_ERROR && g_script.mIsReadyToExecute)
 		// Pass EXIT_DESTROY to ensure the program always exits, regardless of OnExit.
-		g_script.ExitApp(EXIT_DESTROY);
+		g_script.ExitApp(EXIT_CRITICAL);
 
 	return aErrorType; // The caller told us whether it should be a critical error or not.
 }
@@ -16725,7 +16729,7 @@ ResultType Script::CriticalError(LPCTSTR aErrorText, LPCTSTR aExtraInfo)
 	// mCurrLine should always be non-NULL during runtime, and CRITICAL_ERROR should
 	// cause LineError() to exit even if an OnExit routine is present, so this is here
 	// mainly for maintainability.
-	TerminateApp(EXIT_DESTROY, CRITICAL_ERROR);
+	TerminateApp(EXIT_CRITICAL, 0);
 	return FAIL; // Never executed.
 }
 
